@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Gesture Controlled 3D Particle System</title>
+<style>
+  body { margin: 0; overflow: hidden; background: black; }
+  video { display: none; }
+</style>
+</head>
+<body>
+
+<video id="video" autoplay playsinline></video>
+
+<!-- THREE.JS -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js"></script>
+
+<!-- MEDIAPIPE -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.min.js"></script>
+
+<script>
+/* =========================
+   BASIC THREE.JS SETUP
+========================= */
+
+let scene, camera, renderer, particles;
+let currentShape = "heart";
+const PARTICLE_COUNT = 5000;
+
+scene = new THREE.Scene();
+
+camera = new THREE.PerspectiveCamera(
+  60, window.innerWidth / window.innerHeight, 0.1, 1000
+);
+camera.position.z = 50;
+
+renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+/* =========================
+   SHAPE GENERATORS
+========================= */
+
+function heartShape(count) {
+  const pts = [];
+  for (let i = 0; i < count; i++) {
+    const t = Math.random() * Math.PI * 2;
+    const x = 16 * Math.pow(Math.sin(t), 3);
+    const y = 13 * Math.cos(t) - 5 * Math.cos(2*t)
+            - 2 * Math.cos(3*t) - Math.cos(4*t);
+    const z = (Math.random() - 0.5) * 5;
+    pts.push(x, y, z);
+  }
+  return pts;
+}
+
+function saturnShape(count) {
+  const pts = [];
+  for (let i = 0; i < count; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = 10 + Math.random() * 5;
+    pts.push(
+      Math.cos(a) * r,
+      (Math.random() - 0.5) * 2,
+      Math.sin(a) * r
+    );
+  }
+  return pts;
+}
+
+function fireworksShape(count) {
+  const pts = [];
+  for (let i = 0; i < count; i++) {
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const r = Math.random() * 15;
+    pts.push(
+      r * Math.sin(phi) * Math.cos(theta),
+      r * Math.cos(phi),
+      r * Math.sin(phi) * Math.sin(theta)
+    );
+  }
+  return pts;
+}
+
+/* =========================
+   PARTICLE CREATION
+========================= */
+
+function createParticles(shapeData) {
+  if (particles) scene.remove(particles);
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(shapeData, 3)
+  );
+
+  const material = new THREE.PointsMaterial({
+    size: 0.35,
+    color: 0xff66cc
+  });
+
+  particles = new THREE.Points(geometry, material);
+  scene.add(particles);
+}
+
+function switchShape(shape) {
+  currentShape = shape;
+  if (shape === "heart") createParticles(heartShape(PARTICLE_COUNT));
+  if (shape === "saturn") createParticles(saturnShape(PARTICLE_COUNT));
+  if (shape === "fireworks") createParticles(fireworksShape(PARTICLE_COUNT));
+}
+
+createParticles(heartShape(PARTICLE_COUNT));
+
+/* =========================
+   HAND TRACKING
+========================= */
+
+const video = document.getElementById("video");
+
+const hands = new Hands({
+  locateFile: file =>
+    `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+});
+
+hands.setOptions({
+  maxNumHands: 1,
+  modelComplexity: 1,
+  minDetectionConfidence: 0.7,
+  minTrackingConfidence: 0.7
+});
+
+hands.onResults(onHandResults);
+
+const cam = new Camera(video, {
+  onFrame: async () => {
+    await hands.send({ image: video });
+  },
+  width: 640,
+  height: 480
+});
+cam.start();
+
+/* =========================
+   GESTURE LOGIC
+========================= */
+
+function onHandResults(results) {
+  if (!results.multiHandLandmarks.length) return;
+
+  const hand = results.multiHandLandmarks[0];
+  const thumb = hand[4];
+  const index = hand[8];
+
+  const pinch = Math.hypot(
+    thumb.x - index.x,
+    thumb.y - index.y
+  );
+
+  // 🤏 PINCH → SCALE
+  const scale = THREE.MathUtils.clamp(1 / pinch, 0.8, 3);
+  particles.scale.set(scale, scale, scale);
+
+  // 🌈 COLOR SHIFT
+  particles.material.color.setHSL(pinch * 2, 1, 0.5);
+
+  // ✋ OPEN / CLOSE → SHAPE SWITCH
+  if (pinch > 0.15 && currentShape !== "saturn") {
+    switchShape("saturn");
+  }
+  if (pinch < 0.07 && currentShape !== "heart") {
+    switchShape("heart");
+  }
+
+  // 👊 VERY CLOSE → FIREWORKS
+  if (pinch < 0.04 && currentShape !== "fireworks") {
+    switchShape("fireworks");
+  }
+}
+
+/* =========================
+   ANIMATION LOOP
+========================= */
+
+function animate() {
+  requestAnimationFrame(animate);
+  particles.rotation.y += 0.002;
+  particles.rotation.x += 0.001;
+  renderer.render(scene, camera);
+}
+
+animate();
+
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+
+</body>
+</html>
